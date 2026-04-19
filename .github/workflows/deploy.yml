@@ -1,0 +1,51 @@
+name: Validate & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate HTML syntax
+        run: |
+          if grep -q '<script>' index.html; then
+            echo "Script tags should be <script> not <script>"
+            exit 1
+          fi
+          echo "HTML structure looks valid"
+
+      - name: Check for required elements
+        run: |
+          grep -q '<!DOCTYPE html>' index.html
+          grep -q '<html' index.html
+          grep -q '</html>' index.html
+          echo "HTML structure validated"
+
+  deploy:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

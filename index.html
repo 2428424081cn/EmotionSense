@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>实时表情识别反馈</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+SC:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-secondary: #12121a;
+      --fg: #e8e6f0;
+      --fg-muted: #7a7890;
+      --accent: #00e5a0;
+      --accent-glow: rgba(0, 229, 160, 0.3);
+      --card: rgba(255, 255, 255, 0.04);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --danger: #ff4d6a;
+      --warning: #ffb84d;
+      --info: #4da6ff;
+      --radius: 16px;
+      --radius-sm: 10px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Noto Sans SC', 'Outfit', sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* 背景氛围 */
+    .bg-atmosphere {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .bg-atmosphere::before {
+      content: '';
+      position: absolute;
+      width: 600px; height: 600px;
+      top: -200px; right: -100px;
+      background: radial-gradient(circle, rgba(0,229,160,0.08) 0%, transparent 70%);
+      animation: float1 20s ease-in-out infinite;
+    }
+    .bg-atmosphere::after {
+      content: '';
+      position: absolute;
+      width: 500px; height: 500px;
+      bottom: -150px; left: -100px;
+      background: radial-gradient(circle, rgba(77,166,255,0.06) 0%, transparent 70%);
+      animation: float2 25s ease-in-out infinite;
+    }
+    @keyframes float1 {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(-80px, 60px) scale(1.2); }
+    }
+    @keyframes float2 {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(60px, -40px) scale(1.1); }
+    }
+
+    /* 网格纹理 */
+    .grid-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+
+    /* 主布局 */
+    .app-container {
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 头部 */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 0 32px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon {
+      width: 42px; height: 42px;
+      background: linear-gradient(135deg, var(--accent), #00b8d4);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+    .logo-text {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 22px;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--fg), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 100px;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      font-size: 13px;
+      color: var(--fg-muted);
+      transition: all 0.3s;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--fg-muted);
+      transition: all 0.3s;
+    }
+    .status-badge.active .status-dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .status-badge.active {
+      color: var(--accent);
+      border-color: rgba(0, 229, 160, 0.2);
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.3); }
+    }
+
+    /* 主内容区 */
+    .main-content {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 24px;
+    }
+
+    /* 视频区域 */
+    .video-section {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .video-wrapper {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border);
+      aspect-ratio: 4/3;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      display: block;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      transform: scaleX(-1);
+      pointer-events: none;
+    }
+
+    /* 视频覆盖层 - 启动前 */
+    .video-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background: linear-gradient(135deg, var(--bg-secondary), rgba(0,229,160,0.03));
+      transition: opacity 0.5s, visibility 0.5s;
+    }
+    .video-placeholder.hidden {
+      opacity: 0;
+      visibility: hidden;
+    }
+    .placeholder-icon {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: var(--card);
+      border: 2px dashed rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      animation: breathe 3s ease-in-out infinite;
+    }
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); border-color: rgba(255,255,255,0.1); }
+      50% { transform: scale(1.05); border-color: rgba(0,229,160,0.3); }
+    }
+    .placeholder-text {
+      color: var(--fg-muted);
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* 启动按钮 */
+    .start-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 32px;
+      border: none;
+      border-radius: 100px;
+      background: linear-gradient(135deg, var(--accent), #00b8d4);
+      color: #0a0a0f;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 24px var(--accent-glow);
+    }
+    .start-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,229,160,0.4);
+    }
+    .start-btn:active { transform: translateY(0); }
+    .start-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* 当前表情大展示 */
+    .current-emotion {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 20px 24px;
+      border-radius: var(--radius);
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(10px);
+      transition: all 0.4s;
+    }
+    .current-emotion .emoji-display {
+      font-size: 48px;
+      width: 72px; height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.03);
+      transition: all 0.3s;
+      flex-shrink: 0;
+    }
+    .current-emotion .emotion-info {
+      flex: 1;
+    }
+    .current-emotion .emotion-label {
+      font-size: 13px;
+      color: var(--fg-muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .current-emotion .emotion-name {
+      font-family: 'Outfit', sans-serif;
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      transition: all 0.3s;
+    }
+    .current-emotion .emotion-confidence {
+      font-size: 14px;
+      color: var(--fg-muted);
+      margin-top: 2px;
+    }
+    .confidence-bar-bg {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .confidence-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+      transition: width 0.3s ease, background 0.3s;
+      width: 0%;
+    }
+
+    /* 右侧面板 */
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .panel-card {
+      border-radius: var(--radius);
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(10px);
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title span {
+      font-size: 16px;
+    }
+    .panel-body {
+      padding: 16px 20px;
+    }
+
+    /* 表情概率列表 */
+    .emotion-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .emotion-bar-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .emotion-bar-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+    .emotion-bar-label .name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--fg-muted);
+    }
+    .emotion-bar-label .name .em-icon {
+      font-size: 16px;
+    }
+    .emotion-bar-label .value {
+      font-family: 'Outfit', monospace;
+      font-weight: 600;
+      color: var(--fg);
+      font-size: 13px;
+    }
+    .emotion-bar-track {
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .emotion-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+
+    /* 历史记录 */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .history-list::-webkit-scrollbar { width: 4px; }
+    .history-list::-webkit-scrollbar-track { background: transparent; }
+    .history-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: rgba(255,255,255,0.02);
+      transition: background 0.2s;
+      animation: slideIn 0.3s ease;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .history-item:hover { background: rgba(255,255,255,0.04); }
+    .history-item .h-emoji {
+      font-size: 22px;
+      width: 36px; height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+      flex-shrink: 0;
+    }
+    .history-item .h-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .history-item .h-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .history-item .h-time {
+      font-size: 11px;
+      color: var(--fg-muted);
+    }
+    .history-item .h-conf {
+      font-family: 'Outfit', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .empty-history {
+      text-align: center;
+      color: var(--fg-muted);
+      font-size: 13px;
+      padding: 24px 0;
+    }
+
+    /* 统计卡片 */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .stat-item {
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      background: rgba(255,255,255,0.02);
+      text-align: center;
+    }
+    .stat-value {
+      font-family: 'Outfit', sans-serif;
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--fg-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* 加载状态 */
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10,10,15,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 10;
+      transition: opacity 0.5s, visibility 0.5s;
+    }
+    .loading-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+    }
+    .loading-spinner {
+      width: 48px; height: 48px;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text {
+      font-size: 14px;
+      color: var(--fg-muted);
+    }
+
+    /* 表情颜色映射 */
+    .emotion-happy { color: #00e5a0; }
+    .emotion-sad { color: #4da6ff; }
+    .emotion-angry { color: #ff4d6a; }
+    .emotion-surprised { color: #ffb84d; }
+    .emotion-fearful { color: #c77dff; }
+    .emotion-disgusted { color: #7ddf64; }
+    .emotion-neutral { color: #a0a0b0; }
+
+    /* 响应式 */
+    @media (max-width: 900px) {
+      .main-content {
+        grid-template-columns: 1fr;
+      }
+      .side-panel {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+    }
+    @media (max-width: 600px) {
+      .app-container { padding: 16px; }
+      .side-panel { grid-template-columns: 1fr; }
+      header { flex-direction: column; gap: 12px; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-atmosphere"></div>
+  <div class="grid-overlay"></div>
+
+  <div class="app-container">
+    <header>
+      <div class="logo">
+        <div class="logo-icon">🎭</div>
+        <div class="logo-text">EmotionSense</div>
+      </div>
+      <div class="status-badge" id="statusBadge">
+        <div class="status-dot"></div>
+        <span id="statusText">等待启动</span>
+      </div>
+    </header>
+
+    <div class="main-content">
+      <!-- 左侧：视频区域 -->
+      <div class="video-section">
+        <div class="video-wrapper">
+          <video id="video" autoplay muted playsinline></video>
+          <canvas id="overlay"></canvas>
+
+          <div class="video-placeholder" id="placeholder">
+            <div class="placeholder-icon">📷</div>
+            <div class="placeholder-text">
+              点击下方按钮启动摄像头<br>
+              <span style="font-size:12px; opacity:0.6;">需要允许浏览器访问摄像头权限</span>
+            </div>
+            <button class="start-btn" id="startBtn" onclick="startApp()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              启动摄像头
+            </button>
+          </div>
+
+          <div class="loading-overlay hidden" id="loadingOverlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text" id="loadingText">正在加载识别模型...</div>
+          </div>
+        </div>
+
+        <!-- 当前表情展示 -->
+        <div class="current-emotion" id="currentEmotion">
+          <div class="emoji-display" id="currentEmoji">😐</div>
+          <div class="emotion-info">
+            <div class="emotion-label">当前表情</div>
+            <div class="emotion-name" id="currentName">等待检测</div>
+            <div class="emotion-confidence" id="currentConf">置信度: --</div>
+            <div class="confidence-bar-bg">
+              <div class="confidence-bar-fill" id="currentConfBar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧面板 -->
+      <div class="side-panel">
+        <!-- 表情概率分布 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="panel-title"><span>📊</span> 表情概率分布</div>
+          </div>
+          <div class="panel-body">
+            <div class="emotion-bars" id="emotionBars">
+              <!-- JS 动态生成 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 统计 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="panel-title"><span>📈</span> 实时统计</div>
+          </div>
+          <div class="panel-body">
+            <div class="stats-grid">
+              <div class="stat-item">
+                <div class="stat-value" id="statTotal">0</div>
+                <div class="stat-label">检测次数</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value" id="statFaces">0</div>
+                <div class="stat-label">检测到人脸</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value" id="statFPS">0</div>
+                <div class="stat-label">FPS</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value" id="statDominant">--</div>
+                <div class="stat-label">主要表情</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 历史记录 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="panel-title"><span>🕐</span> 变化记录</div>
+            <button onclick="clearHistory()" style="background:none;border:none;color:var(--fg-muted);font-size:12px;cursor:pointer;font-family:inherit;">清空</button>
+          </div>
+          <div class="panel-body">
+            <div class="history-list" id="historyList">
+              <div class="empty-history">暂无记录</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- face-api.js -->
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+  <script>
+    // ========== 配置 ==========
+    const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+    const EMOTION_MAP = {
+      neutral:    { label: '平静', emoji: '😐', color: '#a0a0b0' },
+      happy:      { label: '开心', emoji: '😊', color: '#00e5a0' },
+      sad:        { label: '悲伤', emoji: '😢', color: '#4da6ff' },
+      angry:      { label: '愤怒', emoji: '😠', color: '#ff4d6a' },
+      fearful:    { label: '恐惧', emoji: '😨', color: '#c77dff' },
+      disgusted:  { label: '厌恶', emoji: '🤢', color: '#7ddf64' },
+      surprised:  { label: '惊讶', emoji: '😲', color: '#ffb84d' }
+    };
+
+    // ========== 状态 ==========
+    let isRunning = false;
+    let lastEmotion = null;
+    let detectionCount = 0;
+    let faceDetectedCount = 0;
+    let emotionCounts = {};
+    let fpsFrames = 0;
+    let fpsLast = performance.now();
+    let currentFPS = 0;
+
+    // ========== DOM ==========
+    const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const placeholder = document.getElementById('placeholder');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const loadingText = document.getElementById('loadingText');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusText = document.getElementById('statusText');
+    const startBtn = document.getElementById('startBtn');
+
+    // ========== 初始化表情概率条 ==========
+    function initEmotionBars() {
+      const container = document.getElementById('emotionBars');
+      container.innerHTML = '';
+      Object.entries(EMOTION_MAP).forEach(([key, val]) => {
+        const item = document.createElement('div');
+        item.className = 'emotion-bar-item';
+        item.innerHTML = `
+          <div class="emotion-bar-label">
+            <div class="name"><span class="em-icon">${val.emoji}</span> ${val.label}</div>
+            <div class="value" id="bar-val-${key}">0%</div>
+          </div>
+          <div class="emotion-bar-track">
+            <div class="emotion-bar-fill" id="bar-fill-${key}" style="background:${val.color};"></div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+    initEmotionBars();
+
+    // ========== 启动应用 ==========
+    async function startApp() {
+      startBtn.disabled = true;
+      loadingOverlay.classList.remove('hidden');
+      loadingText.textContent = '正在加载识别模型...';
+
+      try {
+        // 加载模型
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        loadingText.textContent = '正在加载表情识别模型...';
+        await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+        loadingText.textContent = '正在启动摄像头...';
+
+        // 获取摄像头
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+        });
+        video.srcObject = stream;
+
+        await new Promise(resolve => {
+          video.onloadedmetadata = () => {
+            video.play();
+            resolve();
+          };
+        });
+
+        // 设置 overlay 尺寸
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+
+        // 隐藏占位
+        placeholder.classList.add('hidden');
+        loadingOverlay.classList.add('hidden');
+
+        // 更新状态
+        statusBadge.classList.add('active');
+        statusText.textContent = '识别中';
+        isRunning = true;
+
+        // 开始检测
+        detectEmotions();
+
+      } catch (err) {
+        console.error('启动失败:', err);
+        loadingText.textContent = '启动失败: ' + (err.message || '请检查摄像头权限');
+        startBtn.disabled = false;
+      }
+    }
+
+    // ========== 表情检测循环 ==========
+    async function detectEmotions() {
+      if (!isRunning) return;
+
+      const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+
+      try {
+        const detections = await faceapi
+          .detectAllFaces(video, options)
+          .withFaceExpressions();
+
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+        detectionCount++;
+        document.getElementById('statTotal').textContent = detectionCount;
+
+        if (detections.length > 0) {
+          faceDetectedCount++;
+          document.getElementById('statFaces').textContent = faceDetectedCount;
+
+          // 取最大的人脸
+          let mainFace = detections[0];
+          let mainSize = 0;
+          detections.forEach(det => {
+            const box = det.detection.box;
+            const size = box.width * box.height;
+            if (size > mainSize) {
+              mainSize = size;
+              mainFace = det;
+            }
+          });
+
+          // 绘制人脸框
+          const box = mainFace.detection.box;
+          drawFaceBox(ctx, box, mainFace);
+
+          // 更新表情数据
+          updateEmotionDisplay(mainFace.expressions);
+
+        } else {
+          // 没检测到人脸
+          document.getElementById('currentName').textContent = '未检测到人脸';
+          document.getElementById('currentEmoji').textContent = '🔍';
+          document.getElementById('currentConf').textContent = '置信度: --';
+          document.getElementById('currentConfBar').style.width = '0%';
+
+          // 清空概率条
+          Object.keys(EMOTION_MAP).forEach(key => {
+            document.getElementById(`bar-val-${key}`).textContent = '0%';
+            document.getElementById(`bar-fill-${key}`).style.width = '0%';
+          });
+        }
+
+        // 计算 FPS
+        fpsFrames++;
+        const now = performance.now();
+        if (now - fpsLast >= 1000) {
+          currentFPS = fpsFrames;
+          fpsFrames = 0;
+          fpsLast = now;
+          document.getElementById('statFPS').textContent = currentFPS;
+        }
+
+      } catch (err) {
+        console.error('检测错误:', err);
+      }
+
+      requestAnimationFrame(detectEmotions);
+    }
+
+    // ========== 绘制人脸框 ==========
+    function drawFaceBox(ctx, box, face) {
+      const expressions = face.expressions;
+      const dominant = Object.entries(expressions).reduce((a, b) => a[1] > b[1] ? a : b);
+      const emotionInfo = EMOTION_MAP[dominant[0]] || EMOTION_MAP.neutral;
+      const confidence = dominant[1];
+
+      // 发光边框
+      ctx.strokeStyle = emotionInfo.color;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = emotionInfo.color;
+      ctx.shadowBlur = 12;
+      roundRect(ctx, box.x, box.y, box.width, box.height, 8);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // 角标装饰
+      const cornerLen = 20;
+      ctx.strokeStyle = emotionInfo.color;
+      ctx.lineWidth = 3;
+      // 左上
+      ctx.beginPath();
+      ctx.moveTo(box.x, box.y + cornerLen);
+      ctx.lineTo(box.x, box.y);
+      ctx.lineTo(box.x + cornerLen, box.y);
+      ctx.stroke();
+      // 右上
+      ctx.beginPath();
+      ctx.moveTo(box.x + box.width - cornerLen, box.y);
+      ctx.lineTo(box.x + box.width, box.y);
+      ctx.lineTo(box.x + box.width, box.y + cornerLen);
+      ctx.stroke();
+      // 左下
+      ctx.beginPath();
+      ctx.moveTo(box.x, box.y + box.height - cornerLen);
+      ctx.lineTo(box.x, box.y + box.height);
+      ctx.lineTo(box.x + cornerLen, box.y + box.height);
+      ctx.stroke();
+      // 右下
+      ctx.beginPath();
+      ctx.moveTo(box.x + box.width - cornerLen, box.y + box.height);
+      ctx.lineTo(box.x + box.width, box.y + box.height);
+      ctx.lineTo(box.x + box.width, box.y + box.height - cornerLen);
+      ctx.stroke();
+
+      // 标签
+      const label = `${emotionInfo.emoji} ${emotionInfo.label} ${Math.round(confidence * 100)}%`;
+      ctx.font = '600 14px "Noto Sans SC", sans-serif';
+      const textWidth = ctx.measureText(label).width;
+      const labelX = box.x;
+      const labelY = box.y - 10;
+
+      ctx.fillStyle = emotionInfo.color;
+      ctx.globalAlpha = 0.15;
+      roundRectFill(ctx, labelX - 6, labelY - 18, textWidth + 12, 24, 6);
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = emotionInfo.color;
+      ctx.fillText(label, labelX, labelY);
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function roundRectFill(ctx, x, y, w, h, r) {
+      roundRect(ctx, x, y, w, h, r);
+      ctx.fill();
+    }
+
+    // ========== 更新表情显示 ==========
+    function updateEmotionDisplay(expressions) {
+      // 找到主导表情
+      const dominant = Object.entries(expressions).reduce((a, b) => a[1] > b[1] ? a : b);
+      const emotionKey = dominant[0];
+      const confidence = dominant[1];
+      const info = EMOTION_MAP[emotionKey] || EMOTION_MAP.neutral;
+
+      // 更新当前表情
+      document.getElementById('currentEmoji').textContent = info.emoji;
+      document.getElementById('currentName').textContent = info.label;
+      document.getElementById('currentName').style.color = info.color;
+      document.getElementById('currentConf').textContent = `置信度: ${Math.round(confidence * 100)}%`;
+      document.getElementById('currentConfBar').style.width = `${confidence * 100}%`;
+      document.getElementById('currentConfBar').style.background = info.color;
+
+      // 更新概率条
+      Object.entries(EMOTION_MAP).forEach(([key]) => {
+        const val = expressions[key] || 0;
+        const pct = Math.round(val * 100);
+        document.getElementById(`bar-val-${key}`).textContent = `${pct}%`;
+        document.getElementById(`bar-fill-${key}`).style.width = `${pct}%`;
+      });
+
+      // 更新统计
+      emotionCounts[emotionKey] = (emotionCounts[emotionKey] || 0) + 1;
+      const dominantOverall = Object.entries(emotionCounts).reduce((a, b) => a[1] > b[1] ? a : b);
+      const dominantInfo = EMOTION_MAP[dominantOverall[0]];
+      document.getElementById('statDominant').textContent = dominantInfo.emoji;
+      document.getElementById('statDominant').title = dominantInfo.label;
+
+      // 添加历史记录（表情变化时）
+      if (emotionKey !== lastEmotion) {
+        addHistoryItem(emotionKey, confidence);
+        lastEmotion = emotionKey;
+      }
+    }
+
+    // ========== 历史记录 ==========
+    function addHistoryItem(emotionKey, confidence) {
+      const list = document.getElementById('historyList');
+      // 移除空提示
+      const empty = list.querySelector('.empty-history');
+      if (empty) empty.remove();
+
+      const info = EMOTION_MAP[emotionKey];
+      const now = new Date();
+      const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      item.innerHTML = `
+        <div class="h-emoji">${info.emoji}</div>
+        <div class="h-info">
+          <div class="h-name" style="color:${info.color}">${info.label}</div>
+          <div class="h-time">${time}</div>
+        </div>
+        <div class="h-conf">${Math.round(confidence * 100)}%</div>
+      `;
+
+      list.insertBefore(item, list.firstChild);
+
+      // 最多保留 50 条
+      while (list.children.length > 50) {
+        list.removeChild(list.lastChild);
+      }
+    }
+
+    function clearHistory() {
+      const list = document.getElementById('historyList');
+      list.innerHTML = '<div class="empty-history">暂无记录</div>';
+      emotionCounts = {};
+      faceDetectedCount = 0;
+      detectionCount = 0;
+      lastEmotion = null;
+      document.getElementById('statTotal').textContent = '0';
+      document.getElementById('statFaces').textContent = '0';
+      document.getElementById('statDominant').textContent = '--';
+    }
+  </script>
+</body>
+</html>
