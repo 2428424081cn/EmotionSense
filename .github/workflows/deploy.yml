@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -13,19 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate HTML syntax
+      - name: Validate HTML structure
         run: |
-          if grep -q '<script>' index.html; then
-            echo "Script tags should be <script> not <script>"
-            exit 1
-          fi
-          echo "HTML structure looks valid"
-
-      - name: Check for required elements
-        run: |
-          grep -q '<!DOCTYPE html>' index.html
-          grep -q '<html' index.html
-          grep -q '</html>' index.html
+          grep -q '<!DOCTYPE html>' index.html || { echo "Missing DOCTYPE"; exit 1; }
+          grep -q '<html' index.html || { echo "Missing html tag"; exit 1; }
+          grep -q '</html>' index.html || { echo "Missing closing html tag"; exit 1; }
+          grep -q '<body>' index.html || { echo "Missing body tag"; exit 1; }
+          grep -q '</body>' index.html || { echo "Missing closing body tag"; exit 1; }
           echo "HTML structure validated"
 
   deploy:
